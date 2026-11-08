@@ -27,7 +27,7 @@
       "top": -71.7,
       "left": 624.9,
       "rotate": 90,
-      "attrs": { "distance": "9" }
+      "attrs": { "distance": "13" }
     },
     { "type": "wokwi-led", "id": "led2", "top": 44.4, "left": 311, "attrs": { "color": "green" } },
     {
@@ -76,17 +76,12 @@
     [ "esp:RX", "$serialMonitor:TX", "", [] ],
     [ "bb1:bn.1", "esp:GND.2", "black", [ "v-1.3", "h-56", "v-46.34" ] ],
     [ "bb1:tn.1", "esp:GND.1", "black", [ "v-0.1", "h-190.4" ] ],
-    [ "esp:5V", "bb1:bp.1", "red", [ "v-30.31", "h-58.74", "v163.2", "h249.6", "v0.9" ] ],
-    [
-      "esp:5",
-      "ultrasonic1:TRIG",
-      "gray",
-      [ "v17.54", "h-125.94", "v-220.8", "h721.14", "v40.46" ]
-    ],
+    [ "esp:5V", "bb1:bp.1", "red", [ "v-9.45", "h-19.2", "v142.34", "v1.66", "h353.6" ] ],
+    [ "esp:5", "ultrasonic1:TRIG", "gray", [ "v17.54", "h-115.2", "v-180.74", "h710.4", "v0.4" ] ],
     [ "ultrasonic1:ECHO", "esp:18", "blue", [ "v-0.8", "h-57.6", "v279.2", "h-556.8" ] ],
     [ "bb1:4b.j", "esp:2", "orange", [ "v67.2", "h-316.8", "v-96" ] ],
-    [ "esp:19", "ultrasonic2:TRIG", "gray", [ "v28.8", "h134.4", "v115.2", "h422.4", "v-9.6" ] ],
-    [ "esp:21", "ultrasonic2:ECHO", "green", [ "v163.2", "h556.8", "v-9.6" ] ],
+    [ "esp:19", "ultrasonic2:TRIG", "gray", [ "v28.8", "h134.4", "v105.6", "h422.4", "v-114.8" ] ],
+    [ "esp:21", "ultrasonic2:ECHO", "green", [ "v144", "h556.8", "v-114.4" ] ],
     [ "bb1:7b.j", "esp:4", "orange", [ "v76.8", "h-326.4" ] ],
     [ "bb1:15b.j", "esp:23", "orange", [ "v57.6", "h-297.6" ] ],
     [ "bb1:12b.j", "esp:22", "orange", [ "v86.4", "h-278.4" ] ],
@@ -116,4 +111,4 @@
     [ "r4:2", "bb1:15t.e", "", [ "$bb" ] ]
   ],
   "dependencies": {}
-}
+} 
