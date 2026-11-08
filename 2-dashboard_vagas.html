@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard - Vagas Inteligentes</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; background:#111827; color:#e5e7eb; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .topo { display:flex; gap:16px; flex-wrap:wrap; max-width:900px; margin-bottom:16px; }
+  .card { background:#1f2937; border-radius:12px; padding:20px; }
+  .topo .card { flex:1; min-width:180px; }
+  .vagas { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; max-width:900px; margin-bottom:16px; }
+  .label { font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; }
+  .valor { font-size:30px; font-weight:700; margin-top:8px; }
+  .pequeno { font-size:18px; font-weight:600; margin-top:8px; }
+  .livre { color:#34d399; } .ocupada { color:#f87171; } .neutro { color:#9ca3af; }
+  .vaga.livre-bg { border-left:6px solid #34d399; }
+  .vaga.ocupada-bg { border-left:6px solid #f87171; }
+  .vaga.offline-bg { border-left:6px solid #6b7280; opacity:.7; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid #374151; }
+  .wide { max-width:900px; }
+  input { background:#111827; color:#e5e7eb; border:1px solid #374151; border-radius:6px; padding:6px 8px; width:100%; box-sizing:border-box; margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>Vagas Inteligentes</h1>
+
+<div class="topo">
+  <div class="card">
+    <div class="label">Resumo</div>
+    <div id="resumo" class="valor neutro">--</div>
+  </div>
+  <div class="card">
+    <div class="label">Broker MQTT</div>
+    <div id="conexao" class="valor neutro" style="font-size:22px">Desconectado</div>
+  </div>
+  <div class="card">
+    <div class="label">Dispositivo (ESP32)</div>
+    <div id="dispositivo" class="valor neutro" style="font-size:22px">Desconhecido</div>
+  </div>
+  <div class="card">
+    <div class="label">Topico das vagas (+ = curinga)</div>
+    <input id="topico" value="vaga-inteligente/vaga/+/status">
+  </div>
+</div>
+
+<div id="vagas" class="vagas"></div>
+
+<div class="card wide">
+  <div class="label">Historico (mudancas de estado)</div>
+  <table>
+    <thead><tr><th>Hora</th><th>Vaga</th><th>Status</th><th>Distancia</th></tr></thead>
+    <tbody id="historico"></tbody>
+  </table>
+</div>
+
+<script>
+  const BROKER = "wss://broker.hivemq.com:8884/mqtt";
+  const TOPICO_DISPOSITIVO = "vaga-inteligente/dispositivo/status";
+  const TIMEOUT_MS = 6000;  // ESP32 publica a cada 2 s
+
+  const el = id => document.getElementById(id);
+  const vagas = {};          // id -> { dados, lastSeen, ocupadaDesde, exibido }
+  let deviceOnline = null;   // true | false | null (desconhecido)
+  let client;
+
+  const fmtDist = d => d === null ? "fora de alcance" : d.toFixed(1) + " cm";
+
+  function nomeVaga(topic) {
+    const p = topic.split("/");
+    return "Vaga " + (p[p.length - 2] || topic);
+  }
+
+  function garanteCard(id) {
+    if (el("v-" + id)) return;
+    const div = document.createElement("div");
+    div.id = "v-" + id;
+    div.className = "card vaga offline-bg";
+    div.innerHTML = `
+      <div class="label">${id}</div>
+      <div class="valor neutro" data-f="status">--</div>
+      <div class="pequeno" data-f="dist">--</div>
+      <div class="label" style="margin-top:12px">Atualizado: <span data-f="hora">--</span></div>
+      <div class="label">Ocupada ha: <span data-f="tempo">--</span></div>`;
+    el("vagas").appendChild(div);
+    [...el("vagas").children]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .forEach(c => el("vagas").appendChild(c));
+  }
+
+  // Redesenha tudo a partir do estado (chamado a cada mensagem e a cada segundo)
+  function render() {
+    const agora = Date.now();
+    let online = 0, livres = 0;
+
+    for (const [id, v] of Object.entries(vagas)) {
+      const vivo = deviceOnline === true && (agora - v.lastSeen) < TIMEOUT_MS;
+      const d = v.dados;
+      const statusExibido = vivo ? d.status : "Offline";
+
+      if (!vivo) v.ocupadaDesde = null;
+      else if (d.ocupada && !v.ocupadaDesde) v.ocupadaDesde = new Date();
+      else if (!d.ocupada) v.ocupadaDesde = null;
+
+      const card = el("v-" + id);
+      const f = n => card.querySelector(`[data-f="${n}"]`);
+      f("status").textContent = statusExibido;
+      f("status").className = "valor " + (!vivo ? "neutro" : d.ocupada ? "ocupada" : "livre");
+      f("dist").textContent = vivo ? fmtDist(d.distancia) : "--";
+      f("hora").textContent = v.hora;
+      card.classList.toggle("offline-bg", !vivo);
+      card.classList.toggle("ocupada-bg", vivo && d.ocupada);
+      card.classList.toggle("livre-bg", vivo && !d.ocupada);
+
+      const span = f("tempo");
+      if (v.ocupadaDesde) {
+        const s = Math.floor((agora - v.ocupadaDesde) / 1000);
+        span.textContent = `${Math.floor(s / 60)}m ${s % 60}s`;
+      } else span.textContent = "--";
+
+      if (v.exibido !== statusExibido) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${new Date().toLocaleTimeString("pt-BR")}</td><td>${id}</td><td>${statusExibido}</td><td>${vivo && d.distancia !== null ? d.distancia.toFixed(1) + " cm" : "-"}</td>`;
+        el("historico").prepend(tr);
+        while (el("historico").children.length > 30) el("historico").lastChild.remove();
+        v.exibido = statusExibido;
+      }
+
+      if (vivo) { online++; if (!d.ocupada) livres++; }
+    }
+
+    const total = Object.keys(vagas).length;
+    if (!total) { el("resumo").textContent = "--"; el("resumo").className = "valor neutro"; }
+    else if (!online) { el("resumo").textContent = "Sem dados (offline)"; el("resumo").className = "valor neutro"; el("resumo").style.fontSize = "22px"; }
+    else {
+      el("resumo").textContent = `${livres} de ${online} livres`;
+      el("resumo").className = "valor " + (livres > 0 ? "livre" : "ocupada");
+      el("resumo").style.fontSize = "30px";
+    }
+
+    const disp = el("dispositivo");
+    disp.textContent = deviceOnline === true ? "Online" : deviceOnline === false ? "Offline" : "Desconhecido";
+    disp.className = "valor " + (deviceOnline === true ? "livre" : deviceOnline === false ? "ocupada" : "neutro");
+    disp.style.fontSize = "22px";
+  }
+
+  function conectar() {
+    if (client) client.end(true);
+    client = mqtt.connect(BROKER);
+
+    client.on("connect", () => {
+      el("conexao").textContent = "Conectado";
+      el("conexao").className = "valor livre";
+      el("conexao").style.fontSize = "22px";
+      client.subscribe([el("topico").value.trim(), TOPICO_DISPOSITIVO]);
+    });
+    client.on("close", () => {
+      el("conexao").textContent = "Desconectado";
+      el("conexao").className = "valor ocupada";
+      el("conexao").style.fontSize = "22px";
+    });
+
+    client.on("message", (topic, msg) => {
+      const texto = msg.toString();
+
+      if (topic === TOPICO_DISPOSITIVO) {
+        deviceOnline = texto === "online";
+        render();
+        return;
+      }
+
+      let d;
+      try { d = JSON.parse(texto); } catch { return; }
+      const id = nomeVaga(topic);
+      garanteCard(id);
+      const v = vagas[id] = vagas[id] || { ocupadaDesde: null, exibido: null };
+      v.dados = d;
+      v.lastSeen = Date.now();
+      v.hora = new Date().toLocaleTimeString("pt-BR");
+      render();
+    });
+  }
+
+  setInterval(render, 1000);
+  el("topico").addEventListener("change", conectar);
+  conectar();
+</script>
+</body>
+</html>
